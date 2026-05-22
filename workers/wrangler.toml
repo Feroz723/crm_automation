@@ -1,0 +1,13 @@
+name = "lead-webhook-worker"
+main = "webhook.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Environment variables for production
+# Add these in Cloudflare dashboard or use wrangler secret
+
+# For local development, create workers/.dev.vars with:
+# GROQ_API_KEY=your_key
+# GEMINI_API_KEY=your_key
+# DATABASE_URL=your_url
+# SUPABASE_SERVICE_ROLE_KEY=your_key

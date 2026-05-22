@@ -1,0 +1,191 @@
+// Prisma schema for AI-Powered Lead Generation CRM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  leads      Lead[]
+  activities Activity[]
+  configs    SystemConfig[]
+  optOuts    OptOut[]
+  rateLimits RateLimit[]
+  shadowLogs ShadowLog[]
+
+  @@map("organizations")
+}
+
+// Lead model - stores all captured leads from various sources
+model Lead {
+  id               String           @id @default(uuid())
+  orgId            String?          @map("org_id")
+  organization     Organization?    @relation(fields: [orgId], references: [id])
+  fullName         String?          @map("full_name")
+  firstName        String?          @map("first_name")
+  lastName         String?          @map("last_name")
+  email            String?
+  phone            String?
+  source           String           // facebook, google_ads, website, manual, whatsapp
+  status           String           @default("new") // new, contacted, qualified, proposal, won, lost
+  score            Int              @default(0) // 0-100
+  intent           String?          // buying intent classification
+  notes            String?          @db.Text
+  rawData          Json?            @map("raw_data") // store original payload
+  aiEnriched       Boolean          @default(false) @map("ai_enriched")
+  aiMetadata       Json?            @map("ai_metadata") // stores reasoning, factors, and confidence
+  reviewStatus     String           @default("unreviewed") @map("review_status") // unreviewed, verified, rejected
+  automationStatus String           @default("not_simulated") @map("automation_status")
+  canReceiveLiveOutreach Boolean    @default(false) @map("can_receive_live_outreach")
+  outreachDraft    Json?            @map("outreach_draft") // stores email: { subject, body, tone, generatedAt }
+  
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  
+  // Relations
+  activities Activity[]
+  shadowLogs ShadowLog[]
+  
+  @@index([email])
+  @@index([source])
+  @@index([status])
+  @@index([score])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+// Activity model - tracks all interactions and changes
+model Activity {
+  id           String       @id @default(uuid())
+  orgId        String?      @map("org_id")
+  organization Organization? @relation(fields: [orgId], references: [id])
+  leadId       String       @map("lead_id")
+  type         String       // status_change, email_sent, ai_summary, crm_sync, note, enrichment
+  description  String       @db.Text
+  metadata     Json?        // additional data like AI output, email content, etc.
+  
+  createdAt    DateTime     @default(now()) @map("created_at")
+  
+  // Relations
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  
+  @@index([orgId])
+  @@index([leadId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+// User model - for authentication and team management
+model User {
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique
+  hashedPassword String   @map("hashed_password")
+  role           String   @default("sales") // admin, sales, viewer
+  
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  
+  @@index([email])
+  @@map("users")
+}
+
+// WebhookLog model - for debugging and monitoring
+model WebhookLog {
+  id         String   @id @default(uuid())
+  rawPayload Json     @map("raw_payload")
+  status     String   // success, error, pending
+  source     String?  // facebook, google_ads, website, etc.
+  error      String?  @db.Text
+  leadId     String?  @map("lead_id") // reference to created lead if successful
+  
+  createdAt  DateTime @default(now()) @map("created_at")
+  
+  @@index([status])
+  @@index([source])
+  @@index([createdAt])
+  @@map("webhook_logs")
+}
+
+// IntegrationToken model - for n8n and external integrations
+model IntegrationToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  name      String   // descriptive name like "n8n webhook", "facebook automation"
+  userId    String?  @map("user_id")
+  active    Boolean  @default(true)
+  
+  lastUsed  DateTime? @map("last_used")
+  createdAt DateTime  @default(now()) @map("created_at")
+  
+  @@index([token])
+  @@map("integration_tokens")
+}
+
+// SystemConfig model - global settings and kill-switches
+model SystemConfig {
+  id           String       @id @default(uuid())
+  orgId        String?      @map("org_id")
+  organization Organization? @relation(fields: [orgId], references: [id])
+  key          String
+  value        String
+  
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  
+  @@unique([orgId, key])
+  @@map("system_configs")
+}
+
+model OptOut {
+  id           String       @id @default(uuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id])
+  target       String       // email address or phone number (normalized)
+  channel      String       // EMAIL, WHATSAPP, ALL
+  reason       String?      @db.Text
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@unique([orgId, target, channel])
+  @@index([target])
+  @@map("opt_outs")
+}
+
+model RateLimit {
+  id           String       @id @default(uuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id])
+  window       String       // HOUR, DAY
+  maxCount     Int
+  currentCount Int          @default(0)
+  lastReset    DateTime     @default(now()) @map("last_reset")
+
+  @@unique([orgId, window])
+  @@map("rate_limits")
+}
+
+model ShadowLog {
+  id           String       @id @default(uuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id])
+  leadId       String       @map("lead_id")
+  lead         Lead         @relation(fields: [leadId], references: [id])
+  channel      String
+  action       String
+  payload      Json
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@index([orgId, leadId])
+  @@map("shadow_logs")
+}
